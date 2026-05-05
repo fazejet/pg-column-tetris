@@ -64,12 +64,32 @@ That's 8 bytes per row saved. On a 100M-row table, ~800 MB.
 - Variable-length columns (`text`, `numeric`, etc.) have data-dependent storage size; the analyzer accounts for their alignment but not their stored bytes, which is the correct behavior for column-ordering analysis.
 - Indexes, `ALTER TABLE`, and `CREATE TABLE ... AS` are not analyzed. The original `pg_column_tetris` operates on existing tables in the database; for those, install the original extension.
 
+## Installation
+
+This extension isn't published to the Marketplace — it's distributed as a `.vsix` file for internal team use. To install:
+
+1. Grab the latest `pg-column-tetris-<version>.vsix` from the repo (or wherever the team shares it).
+2. Install it from the command line:
+
+   ```bash
+   code --install-extension pg-column-tetris-0.1.0.vsix
+   ```
+
+   Or in VS Code: open the Extensions view, click the `…` menu, and choose **Install from VSIX…**.
+3. Reload VS Code if prompted.
+
 ## Building from source
 
 ```bash
 npm install
 npm run compile
 # then F5 in VS Code to launch a development host
+```
+
+To produce a `.vsix` for distribution:
+
+```bash
+npx @vscode/vsce package
 ```
 
 ## License
