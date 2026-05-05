@@ -14,9 +14,16 @@
  *     column order, so we model column data starting at offset 0 since
  *     all reorderings see the same header).
  *   - For each column we add `padding_to_align(currentOffset, col.align)`
- *     bytes, then the column's size (variable-length columns are treated
- *     as having align=4 and counted with size 0 — only their alignment
- *     padding is real).
+ *     bytes, then the column's size. Variable-length columns are treated
+ *     as having align=4 with the 4-byte varlena header counted; their
+ *     payload is data-dependent so we don't model it.
+ *   - After a variable-length column, the offset for any subsequent column
+ *     is data-dependent — Postgres has to read the varlena's length before
+ *     it can place the next field. We model this by tracking an
+ *     "alignment-unknown" state and charging worst-case padding
+ *     (align - 1) for the next fixed column with align > 1. This is what
+ *     surfaces tables where a varlena sits between fixed columns and
+ *     forces unpredictable padding at runtime.
  *   - At the end, the total tuple size is rounded up to MAXALIGN for the
  *     next row. We do not count this final pad against the column ordering
  *     because every ordering pays the same final-MAXALIGN tax up to 7 bytes,
@@ -51,30 +58,46 @@ function padTo(offset: number, align: number): number {
 /**
  * Simulate the layout of the given columns in order.
  *
- * Variable-length columns (size = -1) contribute alignment padding but their
- * actual byte count is data-dependent — we conservatively model them as
- * occupying 0 bytes for the *padding* analysis, since the user cares about
- * column ordering, not estimating real row size. The penalty we minimize is
- * padding-only.
+ * Variable-length columns (size = -1) contribute alignment padding for their
+ * own placement plus a 4-byte varlena header, but their payload size is
+ * data-dependent so we don't model it.
+ *
+ * Crucially, once a varlena has been placed, the absolute offset of any
+ * later column is data-dependent: Postgres must walk the varlena to find
+ * its end. So if a fixed-aligned column with align > 1 follows a varlena,
+ * we charge the worst-case alignment padding (align - 1). That's what flags
+ * tables where a `text` column is sandwiched between fixed-width columns
+ * — the runtime padding can be anywhere in [0, align-1] depending on the
+ * stored data, and the only way to make it deterministically 0 is to put
+ * the varlena last.
  */
 export function simulateLayout(cols: ResolvedColumn[]): LayoutResult {
   let offset = 0;
   let padding = 0;
+  let alignUnknown = false;
 
   for (const col of cols) {
     const t = col.pgType;
     if (!t) continue; // unknown types contribute nothing to the analysis
-    const pad = padTo(offset, t.align);
+
+    let pad: number;
+    if (alignUnknown && t.align > 1) {
+      pad = t.align - 1;
+      // Snap modeled offset to the next align boundary so subsequent
+      // padTo() calls produce sensible values for further columns.
+      offset = Math.ceil((offset + pad) / t.align) * t.align;
+      alignUnknown = false;
+    } else {
+      pad = padTo(offset, t.align);
+      offset += pad;
+    }
     padding += pad;
-    offset += pad;
+
     if (t.size > 0) {
       offset += t.size;
     } else {
-      // Variable-length: assume the user has data, advance by the varlena
-      // header (4 bytes) so subsequent fixed-aligned columns don't get
-      // "free" alignment from a zero-size assumption. In practice users
-      // put varlenas last, so this rarely matters.
-      offset += 4;
+      offset += 4; // varlena header
+      alignUnknown = true;
     }
   }
 

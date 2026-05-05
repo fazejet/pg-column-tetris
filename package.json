@@ -2,7 +2,7 @@
   "name": "pg-column-tetris",
   "displayName": "PG Column Tetris",
   "description": "Lints PostgreSQL migration files for column ordering that wastes space due to alignment padding, and offers an auto-fix to reorder columns optimally.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "engine",
   "license": "MIT",
   "repository": "https://github.com/fazejet/pg-column-tetris",
